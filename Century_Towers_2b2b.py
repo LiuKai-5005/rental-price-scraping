@@ -1,15 +1,18 @@
 # save this as app.py
 from flask import Flask
 import json
-import urlfetch
+import requests
 import datetime  
+import os
 from datetime import date, timedelta
 import matplotlib.pyplot as plt
 
 app = Flask(__name__)
 @app.route('/housing', methods=['GET'])
 def housing(startDate, endDate):
-    houseResponseStr = json.loads(urlfetch.fetch(url = ('https://www.essexapartmenthomes.com/EPT_Feature/PropertyManagement/Service/GetPropertyAvailabiltyByRange/543205/' + str(startDate)[:10] + '/' + str(endDate)[:10])).content)
+    url = 'https://www.essexapartmenthomes.com/EPT_Feature/PropertyManagement/Service/GetPropertyAvailabiltyByRange/543205/' + str(startDate)[:10] + '/' + str(endDate)[:10]
+    response = requests.get(url)
+    houseResponseStr = json.loads(response.content)
     # print(houseResponseStr)
     houseResponse = json.loads(houseResponseStr)
     floorPlans = houseResponse["result"]["floorplans"]
@@ -30,6 +33,12 @@ prices_C2 = []
 prices_C3 = []             
 dates = []
 # dates_C1 = []
+
+# Ensure C:\\temp directory exists
+temp_dir = 'C:\\temp'
+if not os.path.exists(temp_dir):
+    os.makedirs(temp_dir)
+
 checkStartDate = date.today()           #start date to in the report    |   or you can manually specify the start date      e.g. checkStartDate = date(2022, 1, 1)    
 numOfDay = 61                           #end date in the report         |   or you can manually specify the num of days     e.g. numOfDay = 61 
 checkEndDate = checkStartDate + timedelta(days = numOfDay)
@@ -65,7 +74,7 @@ plt.ylabel('Prices ($)')
 plt.legend(["C3"])
 plt.title("The rental Price of Century Towers -- Floor Plan : C3")
 # plt.show()
-plt.savefig('C:\\temp\\house_price_%s_%s.png' %(checkStartDate, checkEndDate))
+plt.savefig('C:\\temp\\house_price_%s_%s.png' % (checkStartDate, checkEndDate))
 
 # print(dates,prices)
 # print(dict)
