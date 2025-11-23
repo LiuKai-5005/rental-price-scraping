@@ -44,7 +44,7 @@ pip install flask requests matplotlib
 
 ## 脚本说明
 
-- `Century_Towers_2b2b.py`：抓取 Century Towers 公寓 C1、C2、C3 户型的价格，输出到 TXT 文件并生成价格走势图。
+- `Century_Towers_2b2b.py`：抓取 Century Towers 公寓 C1、C2、C3 户型的价格，输出到 CSV 文件并生成价格走势图。
 - `Radius_2b2b.py`：抓取 Radius 公寓 Ratio、Locus、Apex、Chord 户型的价格，输出到 CSV 文件并生成价格走势图。
 
 ## 实现
