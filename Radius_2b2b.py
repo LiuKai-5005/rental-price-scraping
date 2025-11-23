@@ -3,14 +3,29 @@ from flask import Flask
 import json
 import requests
 import datetime  
+
 import os
 from datetime import date, timedelta
 import matplotlib.pyplot as plt
 
+# Add tqdm for progress bar
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = None
+
 app = Flask(__name__)
+
 @app.route('/housing', methods=['GET'])
 def housing(startDate, endDate):
-    url = 'https://www.essexapartmenthomes.com/EPT_Feature/PropertyManagement/Service/GetPropertyAvailabiltyByRange/513957/' + str(startDate)[:10] + '/' + str(endDate)[:10]
+    url = (
+        'https://www.essexapartmenthomes.com/'
+        'EPT_Feature/PropertyManagement/Service/'
+        'GetPropertyAvailabiltyByRange/513957/'
+        + str(startDate)[:10]
+        + '/'
+        + str(endDate)[:10]
+    )
     response = requests.get(url)
     houseResponseStr = json.loads(response.content)
     houseResponse = json.loads(houseResponseStr)
@@ -34,13 +49,18 @@ prices_Apex = []
 prices_Chord = []
 dates = []
 
-checkStartDate = date.today()           #start date to in the report    |   or you can manually specify the start date      e.g. checkStartDate = date(2022, 1, 1)    
-numOfDay = 61                           #end date in the report         |   or you can manually specify the num of days     e.g. numOfDay = 61 
-checkEndDate = checkStartDate + timedelta(days = numOfDay)
+# start date in the report (you can also hardcode it)
+checkStartDate = date.today()
+# number of days to check (you can also hardcode it)
+numOfDay = 61
+checkEndDate = checkStartDate + timedelta(days=numOfDay)
 
-for i in range(0, numOfDay + 1):
-    startDate = checkStartDate + timedelta(days = i)
-    endDate = startDate + timedelta(days = 14)
+# Use tqdm progress bar if available
+progress_iter = tqdm(range(0, numOfDay + 1), desc="Querying", unit="day") if tqdm else range(0, numOfDay + 1)
+
+for i in progress_iter:
+    startDate = checkStartDate + timedelta(days=i)
+    endDate = startDate + timedelta(days=14)
     price_dict = housing(startDate, endDate)
     price_Ratio = price_dict.get("Ratio", None)
     price_Locus = price_dict.get("Locus", None)
@@ -52,23 +72,56 @@ for i in range(0, numOfDay + 1):
     prices_Apex.append(price_Apex)
     prices_Chord.append(price_Chord)
 
+# ✅ Properly and safely close the progress bar instance (not the class)
+if hasattr(progress_iter, "close"):
+    progress_iter.close()
+
 # Define output directory and file prefix
 output_dir = os.path.join(os.path.dirname(__file__), 'Radius')
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 output_prefix = os.path.join(output_dir, 'house_price')
 
-
 import csv
-# Output results as CSV with schema
+
+# Find the date with the lowest price for each floor plan
+def get_lowest_price_date(prices, dates):
+    min_price = None
+    min_date = None
+    for price, date in zip(prices, dates):
+        if price is not None and price != 0:
+            if min_price is None or price < min_price:
+                min_price = price
+                min_date = date
+    return min_date, min_price
+
+lowest_ratio_date, lowest_ratio_price = get_lowest_price_date(prices_Ratio, dates)
+lowest_locus_date, lowest_locus_price = get_lowest_price_date(prices_Locus, dates)
+lowest_apex_date, lowest_apex_price = get_lowest_price_date(prices_Apex, dates)
+lowest_chord_date, lowest_chord_price = get_lowest_price_date(prices_Chord, dates)
+
 csv_path = f'{output_prefix}_{checkStartDate}_{checkEndDate}.csv'
 with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
     writer = csv.writer(csvfile)
-    writer.writerow(['date', 'Ratio', 'Locus', 'Apex', 'Chord'])
-    for i in range(len(dates)):
-        writer.writerow([str(dates[i]), prices_Ratio[i], prices_Locus[i], prices_Apex[i], prices_Chord[i]])
+    writer.writerow(['floor_plan', 'date', 'lowest_price'])
+    result_rows = []
+    if lowest_ratio_date:
+        result_rows.append(['Ratio', str(lowest_ratio_date), lowest_ratio_price])
+    if lowest_locus_date:
+        result_rows.append(['Locus', str(lowest_locus_date), lowest_locus_price])
+    if lowest_apex_date:
+        result_rows.append(['Apex', str(lowest_apex_date), lowest_apex_price])
+    if lowest_chord_date:
+        result_rows.append(['Chord', str(lowest_chord_date), lowest_chord_price])
+    for row in result_rows:
+        writer.writerow(row)
 
-# plot 
+print("\nLowest price result for each floor plan:")
+print('floor_plan, move in date, lowest_price')
+for row in result_rows:
+    print(', '.join([str(x) for x in row]))
+
+# plot
 
 # Filter out zero prices for plotting
 plot_dates = []
@@ -100,7 +153,7 @@ if any(plot_Ratio) or any(plot_Locus) or any(plot_Apex) or any(plot_Chord):
         plt.plot(plot_dates, plot_Apex, 'rx-', label='Apex')
     if any(plot_Chord):
         plt.plot(plot_dates, plot_Chord, 'ms-', label='Chord')
-    plt.xlabel('Dates (Time)')
+    plt.xlabel('Dates (Move in Date)')
     plt.ylabel('Prices ($)')
     plt.legend()
     plt.title("The rental Price of Radius -- Floor Plans: Ratio, Locus, Apex, Chord")

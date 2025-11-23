@@ -27,61 +27,94 @@ def housing(startDate, endDate):
             dict["C1"] = float(floorPlans[i]["minimum_rent"])
     return dict
 
-## check how many day you are interested
+dates = []
+
+# Collect price data for each day of interest
 prices_C1 = []
 prices_C2 = []
 prices_C3 = []             
 dates = []
 # dates_C1 = []
 
-# Ensure C:\\temp directory exists
-temp_dir = 'C:\\temp'
+
+# Output directory: relative Century_Towers folder under project
+temp_dir = os.path.join(os.path.dirname(__file__), 'Century_Towers')
 if not os.path.exists(temp_dir):
     os.makedirs(temp_dir)
 
-checkStartDate = date.today()           #start date to in the report    |   or you can manually specify the start date      e.g. checkStartDate = date(2022, 1, 1)    
-numOfDay = 61                           #end date in the report         |   or you can manually specify the num of days     e.g. numOfDay = 61 
+
+# Start date for report; can be manually specified, e.g. checkStartDate = date(2022, 1, 1)
+checkStartDate = date.today()
+# Number of days to check; can be manually specified, e.g. numOfDay = 61
+numOfDay = 61
 checkEndDate = checkStartDate + timedelta(days = numOfDay)
+
 
 for i in range(0, numOfDay + 1):
     startDate = checkStartDate + timedelta(days = i)
     endDate = startDate + timedelta(days = 14)
-    
-    # price = housing(startDate, endDate)
+    # Get prices for each floor plan
     price_C1_C2_C3 = housing(startDate, endDate)
 
     price_C1 = price_C1_C2_C3["C1"]
     price_C2 = price_C1_C2_C3["C2"]
     price_C3 = price_C1_C2_C3["C3"]
 
-    dates.append(startDate)             #date time
-    prices_C1.append(price_C1)            #string
-    prices_C2.append(price_C2)            #string
-    prices_C3.append(price_C3)            #string
-    
-with open('C:\\temp\\house_price_%s_%s.txt'%(checkStartDate, checkEndDate), 'a') as f:
+    dates.append(startDate)             # date
+    prices_C1.append(price_C1)          # price for C1
+    prices_C2.append(price_C2)          # price for C2
+    prices_C3.append(price_C3)          # price for C3
+
+
+# Write results to CSV file with schema header
+import csv
+csv_path = os.path.join(temp_dir, 'house_price_%s_%s.csv' % (checkStartDate, checkEndDate))
+with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+    writer = csv.writer(csvfile)
+    writer.writerow(['date', 'C3', 'C2', 'C1'])
     for i in range(len(dates)):
-        f.write(str(dates[i]) + '\t' + str(prices_C3[i]) + '\t' + str(prices_C2[i]) + '\t' + str(prices_C1[i]) + '\n')
-f.close()
+        pip install tqdm        writer.writerow([str(dates[i]), prices_C3[i], prices_C2[i], prices_C1[i]])
 
-# plot 
-plt.figure(figsize=(9, 6))
-# plt.plot(dates, prices_C3,'bo-', dates, prices_C2, 'g+-', dates, price_C1, 'rx-')
-plt.plot(dates, prices_C3,'bo-')
-plt.xlabel('Dates (Time))')
-plt.ylabel('Prices ($)')
-# plt.legend("C3", "C2", "C1")
-plt.legend(["C3"])
-plt.title("The rental Price of Century Towers -- Floor Plan : C3")
-# plt.show()
-plt.savefig('C:\\temp\\house_price_%s_%s.png' % (checkStartDate, checkEndDate))
 
-# print(dates,prices)
-# print(dict)
+# Filter out zero prices for plotting
+plot_dates = []
+plot_C1 = []
+plot_C2 = []
+plot_C3 = []
+for i in range(len(dates)):
+    valid = False
+    vals = []
+    for val in [prices_C1[i], prices_C2[i], prices_C3[i]]:
+        if val is not None and val != 0:
+            valid = True
+        vals.append(val if val is not None and val != 0 else None)
+    if valid:
+        plot_dates.append(dates[i])
+        plot_C1.append(vals[0])
+        plot_C2.append(vals[1])
+        plot_C3.append(vals[2])
 
-## check 60 days in the future
-# ans = []
-# for i in range(1, 61):
-#     startDate = startDate + timedelta(days = i)
-#     ans.append(housing(startDate, endDate))
-# print(ans)
+# Make the plot
+plt.figure(figsize=(18, 6))
+if any(plot_C1) or any(plot_C2) or any(plot_C3):
+    if any(plot_C3):
+        plt.plot(plot_dates, plot_C3, 'bo-', label='C3')
+    if any(plot_C2):
+        plt.plot(plot_dates, plot_C2, 'g+-', label='C2')
+    if any(plot_C1):
+        plt.plot(plot_dates, plot_C1, 'rx-', label='C1')
+    plt.xlabel('Dates (Time)')
+    plt.ylabel('Prices ($)')
+    plt.legend()
+    plt.title("The rental Price of Century Towers -- Floor Plans: C1, C2, C3")
+    plt.savefig(os.path.join(temp_dir, 'house_price_%s_%s.png' % (checkStartDate, checkEndDate)))
+
+# Output CSV file with metadata schema
+import csv
+csv_path = os.path.join(temp_dir, 'house_price_%s_%s.csv' % (checkStartDate, checkEndDate))
+with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+    writer = csv.writer(csvfile)
+    writer.writerow(['date', 'C3', 'C2', 'C1'])
+    for i in range(len(dates)):
+        writer.writerow([str(dates[i]), prices_C3[i], prices_C2[i], prices_C1[i]])
+
