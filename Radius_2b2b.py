@@ -3,10 +3,12 @@ from flask import Flask
 import json
 import requests
 import datetime  
-
 import os
-from datetime import date, timedelta
+from datetime import datetime, date, timedelta
 import matplotlib.pyplot as plt
+
+from dataclasses import dataclass
+from typing import List, Optional
 
 # Add tqdm for progress bar
 try:
@@ -30,17 +32,100 @@ def housing(startDate, endDate):
     houseResponseStr = json.loads(response.content)
     houseResponse = json.loads(houseResponseStr)
     floorPlans = houseResponse["result"]["floorplans"]
-    result = {}
+    units = parse_units(houseResponse["result"]["units"])
+    idMap = {}      # store mapping of floor plan names to IDs
+    # --- IGNORE ---
+    results = {}
     for i in range(len(floorPlans)):
         if floorPlans[i]["name"] == "Ratio":
-            result["Ratio"] = float(floorPlans[i]["minimum_rent"])
+            results["Ratio"] = float(floorPlans[i]["minimum_rent"])
+            idMap["Ratio"] = floorPlans[i]["floorplan_id"]
         elif floorPlans[i]["name"] == "Locus":
-            result["Locus"] = float(floorPlans[i]["minimum_rent"])
+            results["Locus"] = float(floorPlans[i]["minimum_rent"])
+            idMap["Locus"] = floorPlans[i]["floorplan_id"]
         elif floorPlans[i]["name"] == "Apex":
-            result["Apex"] = float(floorPlans[i]["minimum_rent"])
+            results["Apex"] = float(floorPlans[i]["minimum_rent"])
+            idMap["Apex"] = floorPlans[i]["floorplan_id"]
         elif floorPlans[i]["name"] == "Chord":
-            result["Chord"] = float(floorPlans[i]["minimum_rent"])
-    return result
+            results["Chord"] = float(floorPlans[i]["minimum_rent"])
+            idMap["Chord"] = floorPlans[i]["floorplan_id"]
+    
+    mapping = {}
+    # unit name, unit number, price
+    for unit in units:
+        if unit.floorplan_id == idMap['Ratio']:
+            key = 'Ratio'
+            if (key not in mapping):
+                mapping[key] = []
+            mapping[key].append([unit.floorplan_id, unit.availability_date, unit.name, unit.minimum_rent])    
+        elif unit.floorplan_id == idMap['Locus']:
+            key = 'Locus'
+            if (key not in mapping):
+                mapping[key] = []
+            mapping[key].append([unit.floorplan_id, unit.availability_date, unit.name, unit.minimum_rent]) 
+        elif unit.floorplan_id == idMap['Apex']:
+            key = 'Apex'
+            if (key not in mapping):
+                mapping[key] = []
+            mapping[key].append([unit.floorplan_id, unit.availability_date, unit.name, unit.minimum_rent]) 
+        elif unit.floorplan_id == idMap['Chord']:
+            key = 'Chord'
+            if (key not in mapping):    
+                mapping[key] = []
+            mapping[key].append([unit.floorplan_id, unit.availability_date, unit.name, unit.minimum_rent])
+
+    return results
+
+@dataclass
+class Unit:
+    unit_id: int
+    floorplan_id: int
+    name: str
+    beds: float
+    baths: float
+    sqft: int
+    deposit: float
+    availability_date: Optional[datetime]
+    minimum_rent: float
+    maximum_rent: float
+    make_ready_date: Optional[datetime]
+    aging_days: int
+    hold_days: int
+
+def parse_iso_datetime(dt_str: Optional[str]) -> Optional[datetime]:
+    if not dt_str:
+        return None
+    if dt_str.endswith("Z"):
+        dt_str = dt_str.replace("Z", "+00:00")
+    return datetime.fromisoformat(dt_str)
+
+
+def parse_units(payload: List[dict[str, Any]]) -> List[Unit]:
+    """
+    Convert the raw payload (list of dicts) into a list of Unit objects.
+    """
+    units: List[Unit] = []
+
+    for item in payload:
+        unit = Unit(
+            unit_id=int(item["unit_id"]),
+            floorplan_id=int(item["floorplan_id"]),
+            name=str(item["name"]),
+            beds=float(item["beds"]),
+            baths=float(item["baths"]),
+            sqft=int(item["sqft"]),
+            deposit=float(item["deposit"]),
+            availability_date=parse_iso_datetime(item.get("availability_date")),
+            minimum_rent=float(item["minimum_rent"]),
+            maximum_rent=float(item["maximum_rent"]),
+            make_ready_date=parse_iso_datetime(item.get("make_ready_date")),
+            aging_days=int(item["aging_days"]),
+            hold_days=int(item["hold_days"]),
+        )
+        units.append(unit)
+
+    return units
+
 
 ## check how many day you are interested
 prices_Ratio = []
@@ -103,7 +188,9 @@ lowest_chord_date, lowest_chord_price = get_lowest_price_date(prices_Chord, date
 csv_path = f'{output_prefix}_{checkStartDate}_{checkEndDate}.csv'
 with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
     writer = csv.writer(csvfile)
-    writer.writerow(['floor_plan', 'date', 'lowest_price'])
+    # unit.floorplan_id, unit.availability_date, unit.name, unit.minimum_rent])  
+    writer.writerow(['floor_plan', 'availability_date', 'unit', 'lowest_price'])
+
     result_rows = []
     if lowest_ratio_date:
         result_rows.append(['Ratio', str(lowest_ratio_date), lowest_ratio_price])
