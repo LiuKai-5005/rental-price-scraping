@@ -70,7 +70,11 @@ https://api.avalonbay.com/json/reply/ApartmentSearch?communityCode=CA049&min=200
 - 图片文件：价格随时间变化的折线图，便于观察趋势。
 
 示例：
+### Century towers
 ![house_price_2022-01-02_2022-03-04](https://user-images.githubusercontent.com/54691613/147894436-3faccae7-2438-4f16-bf55-6a929f9a27fb.png)
+
+### Radius
+<img width="1800" height="600" alt="house_price_2025-11-30_2026-01-30" src="https://github.com/user-attachments/assets/fa450d15-cacf-426d-88fe-ace6e2d2c2fb" />
 
 ## 未来计划 / TODO
 
