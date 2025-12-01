@@ -1,14 +1,8 @@
 # save this as app.py
-from flask import Flask
-import json
-import requests
-import datetime  
+import csv
 import os
-from datetime import datetime, date, timedelta
-import matplotlib.pyplot as plt
-
-from dataclasses import dataclass
-from typing import List, Optional
+from datetime import date, timedelta, datetime
+from typing import List
 
 # Add tqdm for progress bar
 try:
@@ -16,232 +10,65 @@ try:
 except ImportError:
     tqdm = None
 
-app = Flask(__name__)
-
-@app.route('/housing', methods=['GET'])
-def housing(startDate, endDate):
-    url = (
-        'https://www.essexapartmenthomes.com/'
-        'EPT_Feature/PropertyManagement/Service/'
-        'GetPropertyAvailabiltyByRange/513957/'
-        + str(startDate)[:10]
-        + '/'
-        + str(endDate)[:10]
-    )
-    response = requests.get(url)
-    houseResponseStr = json.loads(response.content)
-    houseResponse = json.loads(houseResponseStr)
-    floorPlans = houseResponse["result"]["floorplans"]
-    units = parse_units(houseResponse["result"]["units"])
-    idMap = {}      # store mapping of floor plan names to IDs
-    # --- IGNORE ---
-    results = {}
-    for i in range(len(floorPlans)):
-        if floorPlans[i]["name"] == "Ratio":
-            results["Ratio"] = float(floorPlans[i]["minimum_rent"])
-            idMap["Ratio"] = floorPlans[i]["floorplan_id"]
-        elif floorPlans[i]["name"] == "Locus":
-            results["Locus"] = float(floorPlans[i]["minimum_rent"])
-            idMap["Locus"] = floorPlans[i]["floorplan_id"]
-        elif floorPlans[i]["name"] == "Apex":
-            results["Apex"] = float(floorPlans[i]["minimum_rent"])
-            idMap["Apex"] = floorPlans[i]["floorplan_id"]
-        elif floorPlans[i]["name"] == "Chord":
-            results["Chord"] = float(floorPlans[i]["minimum_rent"])
-            idMap["Chord"] = floorPlans[i]["floorplan_id"]
-    
-    mapping = {}
-    # unit name, unit number, price
-    for unit in units:
-        if unit.floorplan_id == idMap['Ratio']:
-            key = 'Ratio'
-            if (key not in mapping):
-                mapping[key] = []
-            mapping[key].append([unit.floorplan_id, unit.availability_date, unit.name, unit.minimum_rent])    
-        elif unit.floorplan_id == idMap['Locus']:
-            key = 'Locus'
-            if (key not in mapping):
-                mapping[key] = []
-            mapping[key].append([unit.floorplan_id, unit.availability_date, unit.name, unit.minimum_rent]) 
-        elif unit.floorplan_id == idMap['Apex']:
-            key = 'Apex'
-            if (key not in mapping):
-                mapping[key] = []
-            mapping[key].append([unit.floorplan_id, unit.availability_date, unit.name, unit.minimum_rent]) 
-        elif unit.floorplan_id == idMap['Chord']:
-            key = 'Chord'
-            if (key not in mapping):    
-                mapping[key] = []
-            mapping[key].append([unit.floorplan_id, unit.availability_date, unit.name, unit.minimum_rent])
-
-    return results
-
-@dataclass
-class Unit:
-    unit_id: int
-    floorplan_id: int
-    name: str
-    beds: float
-    baths: float
-    sqft: int
-    deposit: float
-    availability_date: Optional[datetime]
-    minimum_rent: float
-    maximum_rent: float
-    make_ready_date: Optional[datetime]
-    aging_days: int
-    hold_days: int
-
-def parse_iso_datetime(dt_str: Optional[str]) -> Optional[datetime]:
-    if not dt_str:
-        return None
-    if dt_str.endswith("Z"):
-        dt_str = dt_str.replace("Z", "+00:00")
-    return datetime.fromisoformat(dt_str)
-
-
-def parse_units(payload: List[dict[str, Any]]) -> List[Unit]:
-    """
-    Convert the raw payload (list of dicts) into a list of Unit objects.
-    """
-    units: List[Unit] = []
-
-    for item in payload:
-        unit = Unit(
-            unit_id=int(item["unit_id"]),
-            floorplan_id=int(item["floorplan_id"]),
-            name=str(item["name"]),
-            beds=float(item["beds"]),
-            baths=float(item["baths"]),
-            sqft=int(item["sqft"]),
-            deposit=float(item["deposit"]),
-            availability_date=parse_iso_datetime(item.get("availability_date")),
-            minimum_rent=float(item["minimum_rent"]),
-            maximum_rent=float(item["maximum_rent"]),
-            make_ready_date=parse_iso_datetime(item.get("make_ready_date")),
-            aging_days=int(item["aging_days"]),
-            hold_days=int(item["hold_days"]),
-        )
-        units.append(unit)
-
-    return units
+from plotting import plot_unit_prices
+from radius_client import fetch_housing
 
 
 ## check how many day you are interested
-prices_Ratio = []
-prices_Locus = []
-prices_Apex = []
-prices_Chord = []
-dates = []
+NUM_DAYS = 61  # how many days ahead to query
+OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "Radius")
+OUTPUT_PREFIX = os.path.join(OUTPUT_DIR, "house_price")
 
-# start date in the report (you can also hardcode it)
-checkStartDate = date.today()
-# number of days to check (you can also hardcode it)
-numOfDay = 61
-checkEndDate = checkStartDate + timedelta(days=numOfDay)
+def collect_unit_rows(check_start_date: date, num_days: int) -> List[List]:
+    """
+    Query availability for each day in range and collect unit-level rows.
+    """
+    unit_rows: List[List] = []
+    progress_iter = tqdm(range(0, num_days + 1), desc="Querying", unit="day") if tqdm else range(0, num_days + 1)
 
-# Use tqdm progress bar if available
-progress_iter = tqdm(range(0, numOfDay + 1), desc="Querying", unit="day") if tqdm else range(0, numOfDay + 1)
+    for i in progress_iter:
+        start_date = check_start_date + timedelta(days=i)
+        end_date = start_date + timedelta(days=14)
+        _, day_mapping = fetch_housing(start_date, end_date)
+        for plan, entries in day_mapping.items():
+            for floorplan_id, availability_date, unit_name, rent in entries:
+                unit_rows.append([
+                    plan,
+                    floorplan_id,
+                    availability_date.date().isoformat() if availability_date else "",
+                    unit_name,
+                    rent,
+                ])
 
-for i in progress_iter:
-    startDate = checkStartDate + timedelta(days=i)
-    endDate = startDate + timedelta(days=14)
-    price_dict = housing(startDate, endDate)
-    price_Ratio = price_dict.get("Ratio", None)
-    price_Locus = price_dict.get("Locus", None)
-    price_Apex = price_dict.get("Apex", None)
-    price_Chord = price_dict.get("Chord", None)
-    dates.append(startDate)
-    prices_Ratio.append(price_Ratio)
-    prices_Locus.append(price_Locus)
-    prices_Apex.append(price_Apex)
-    prices_Chord.append(price_Chord)
+    if hasattr(progress_iter, "close"):
+        progress_iter.close()
 
-# ✅ Properly and safely close the progress bar instance (not the class)
-if hasattr(progress_iter, "close"):
-    progress_iter.close()
+    return unit_rows
 
-# Define output directory and file prefix
-output_dir = os.path.join(os.path.dirname(__file__), 'Radius')
-if not os.path.exists(output_dir):
-    os.makedirs(output_dir)
-output_prefix = os.path.join(output_dir, 'house_price')
+def ensure_output_dir() -> str:
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    return OUTPUT_DIR
 
-import csv
 
-# Find the date with the lowest price for each floor plan
-def get_lowest_price_date(prices, dates):
-    min_price = None
-    min_date = None
-    for price, date in zip(prices, dates):
-        if price is not None and price != 0:
-            if min_price is None or price < min_price:
-                min_price = price
-                min_date = date
-    return min_date, min_price
+def write_unit_csv(unit_rows: List[List], check_start_date: date, check_end_date: date) -> str:
+    csv_path = f"{OUTPUT_PREFIX}_{check_start_date}_{check_end_date}.csv"
+    with open(csv_path, "w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["floor_plan", "floorplan_id", "availability_date", "unit", "price"])
+        writer.writerows(unit_rows)
+    return csv_path
 
-lowest_ratio_date, lowest_ratio_price = get_lowest_price_date(prices_Ratio, dates)
-lowest_locus_date, lowest_locus_price = get_lowest_price_date(prices_Locus, dates)
-lowest_apex_date, lowest_apex_price = get_lowest_price_date(prices_Apex, dates)
-lowest_chord_date, lowest_chord_price = get_lowest_price_date(prices_Chord, dates)
 
-csv_path = f'{output_prefix}_{checkStartDate}_{checkEndDate}.csv'
-with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
-    writer = csv.writer(csvfile)
-    # unit.floorplan_id, unit.availability_date, unit.name, unit.minimum_rent])  
-    writer.writerow(['floor_plan', 'availability_date', 'unit', 'lowest_price'])
+def main() -> None:
+    check_start_date = date.today()
+    check_end_date = check_start_date + timedelta(days=NUM_DAYS)
 
-    result_rows = []
-    if lowest_ratio_date:
-        result_rows.append(['Ratio', str(lowest_ratio_date), lowest_ratio_price])
-    if lowest_locus_date:
-        result_rows.append(['Locus', str(lowest_locus_date), lowest_locus_price])
-    if lowest_apex_date:
-        result_rows.append(['Apex', str(lowest_apex_date), lowest_apex_price])
-    if lowest_chord_date:
-        result_rows.append(['Chord', str(lowest_chord_date), lowest_chord_price])
-    for row in result_rows:
-        writer.writerow(row)
+    ensure_output_dir()
+    unit_rows = collect_unit_rows(check_start_date, NUM_DAYS)
+    csv_path = write_unit_csv(unit_rows, check_start_date, check_end_date)
+    print(f"\nWrote {len(unit_rows)} unit-level rows to {csv_path}")
+    plot_unit_prices(unit_rows, OUTPUT_PREFIX, check_start_date, check_end_date)
 
-print("\nLowest price result for each floor plan:")
-print('floor_plan, move in date, lowest_price')
-for row in result_rows:
-    print(', '.join([str(x) for x in row]))
 
-# plot
-
-# Filter out zero prices for plotting
-plot_dates = []
-plot_Ratio = []
-plot_Locus = []
-plot_Apex = []
-plot_Chord = []
-for i in range(len(dates)):
-    valid = False
-    vals = []
-    for val in [prices_Ratio[i], prices_Locus[i], prices_Apex[i], prices_Chord[i]]:
-        if val is not None and val != 0:
-            valid = True
-        vals.append(val if val is not None and val != 0 else None)
-    if valid:
-        plot_dates.append(dates[i])
-        plot_Ratio.append(vals[0])
-        plot_Locus.append(vals[1])
-        plot_Apex.append(vals[2])
-        plot_Chord.append(vals[3])
-
-plt.figure(figsize=(18, 6))
-if any(plot_Ratio) or any(plot_Locus) or any(plot_Apex) or any(plot_Chord):
-    if any(plot_Ratio):
-        plt.plot(plot_dates, plot_Ratio, 'bo-', label='Ratio')
-    if any(plot_Locus):
-        plt.plot(plot_dates, plot_Locus, 'g+-', label='Locus')
-    if any(plot_Apex):
-        plt.plot(plot_dates, plot_Apex, 'rx-', label='Apex')
-    if any(plot_Chord):
-        plt.plot(plot_dates, plot_Chord, 'ms-', label='Chord')
-    plt.xlabel('Dates (Move in Date)')
-    plt.ylabel('Prices ($)')
-    plt.legend()
-    plt.title("The rental Price of Radius -- Floor Plans: Ratio, Locus, Apex, Chord")
-    plt.savefig(f'{output_prefix}_{checkStartDate}_{checkEndDate}.png')
+if __name__ == "__main__":
+    main()
