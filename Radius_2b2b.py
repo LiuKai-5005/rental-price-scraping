@@ -24,6 +24,8 @@ def collect_unit_rows(check_start_date: date, num_days: int) -> List[List]:
     Query availability for each day in range and collect unit-level rows.
     """
     unit_rows: List[List] = []
+    # Track the lowest rent we have seen for each unique plan/floorplan/date/unit combo.
+    seen_prices: dict[tuple[str, int, str, str], float] = {}
     progress_iter = tqdm(range(0, num_days + 1), desc="Querying", unit="day") if tqdm else range(0, num_days + 1)
 
     for i in progress_iter:
@@ -32,13 +34,22 @@ def collect_unit_rows(check_start_date: date, num_days: int) -> List[List]:
         _, day_mapping = fetch_housing(start_date, end_date)
         for plan, entries in day_mapping.items():
             for floorplan_id, availability_date, unit_name, rent in entries:
-                unit_rows.append([
-                    plan,
-                    floorplan_id,
-                    availability_date.date().isoformat() if availability_date else "",
-                    unit_name,
-                    rent,
-                ])
+                avail_str = availability_date.date().isoformat() if availability_date else ""
+                key = (plan, floorplan_id, avail_str, unit_name)
+                if key in seen_prices and seen_prices[key] <= rent:
+                    # keep the lowest price to avoid duplicate dots at different rents
+                    continue
+                seen_prices[key] = rent
+
+    # Build rows from the deduped/lowest-price mapping to feed plotting and CSV
+    for (plan, floorplan_id, avail_str, unit_name), rent in seen_prices.items():
+        unit_rows.append([
+            plan,
+            floorplan_id,
+            avail_str,
+            unit_name,
+            rent,
+        ])
 
     if hasattr(progress_iter, "close"):
         progress_iter.close()
