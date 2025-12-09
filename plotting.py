@@ -14,6 +14,7 @@ def plot_unit_prices(unit_rows: List[List], output_prefix: str, check_start_date
         "Apex": [],
         "Chord": [],
     }
+    seen_points = set()  # guard against duplicated rows in the input
 
     for plan, _, avail_date, unit_name, price in unit_rows:
         if not avail_date:
@@ -22,10 +23,16 @@ def plot_unit_prices(unit_rows: List[List], output_prefix: str, check_start_date
             move_in_date = datetime.fromisoformat(str(avail_date))
         except ValueError:
             continue
+        # Only show one point per plan/unit/date to avoid duplicate dots when prices vary
+        dedup_key = (plan, move_in_date, unit_name)
+        if dedup_key in seen_points:
+            continue
+        seen_points.add(dedup_key)
         if plan not in plot_points:
             plot_points[plan] = []
         plot_points[plan].append((move_in_date, price, unit_name))
 
+    plt.rcParams.update({"font.size": 16})
     plt.figure(figsize=(18, 6))
     styles = {
         "Ratio": ("o", "blue", "Ratio"),
@@ -44,7 +51,23 @@ def plot_unit_prices(unit_rows: List[List], output_prefix: str, check_start_date
         marker, color, label = styles.get(plan, ("o", None, plan))
         plt.scatter(dates_list, prices_list, marker=marker, color=color, label=label)
         for x, y, unit_name in zip(dates_list, prices_list, unit_names):
-            plt.annotate(f"{unit_name} ${y:,.0f}", (x, y), textcoords="offset points", xytext=(5, 5), fontsize=8)
+            plt.annotate(
+                unit_name,
+                (x, y),
+                textcoords="offset points",
+                xytext=(6, 8),
+                fontsize=14,
+                color="navy",
+                fontweight="bold",
+            )
+            plt.annotate(
+                f"${y:,.0f}",
+                (x, y),
+                textcoords="offset points",
+                xytext=(6, -6),
+                fontsize=13,
+                color="darkorange",
+            )
         plotted = True
 
     if plotted:
